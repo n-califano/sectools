@@ -1,16 +1,13 @@
 import subprocess
 
-def run_raw(cmd: str, timeout: int = 30) -> str:
-    """Run a shell command, return raw stdout string. Never raises."""
+def run_raw(cmd, timeout=30):
     try:
-        result = subprocess.run(
+        output = subprocess.check_output(
             cmd,
             shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            stdin=subprocess.DEVNULL,
         )
-        return result.stdout.strip() + '\n' + result.stderr.strip()
-    except Exception:
-        return ""
+        return output.decode('utf-8', errors='replace').strip()
+    except subprocess.CalledProcessError as e:
+        return e.output.decode('utf-8', errors='replace').strip()
+    except Exception as e:
+        return str(e)

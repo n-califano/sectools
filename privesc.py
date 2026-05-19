@@ -1,7 +1,9 @@
 from utils import run_raw
+import sys
 
 def custom_print(label, cmd, output):
-    print(f'-> {label} ({cmd}):\n{output}\n')
+    print('-> {} ({}):\n{}\n'.format(label, cmd, output))
+    sys.stdout.flush()
 
 def main():
     os_rel_cmd = "cat /etc/os-release"
@@ -13,7 +15,8 @@ def main():
     suid_sgid_cmd = 'find / -perm -u=s -type f 2>/dev/null'
     custom_print("SUID/SGID Binaries", suid_sgid_cmd, run_raw(suid_sgid_cmd))
 
-    ls_home_cmd = 'ls -la ~'
+    user_dir = run_raw('grep "^$(whoami):" /etc/passwd | cut -d: -f6')
+    ls_home_cmd = 'ls -la {}'.format(user_dir)
     custom_print("Current user home directory", ls_home_cmd, run_raw(ls_home_cmd))
 
     ls_opt_cmd = 'ls -la /opt'
