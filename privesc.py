@@ -9,6 +9,9 @@ def main():
     os_rel_cmd = "cat /etc/os-release"
     custom_print("OS Info", os_rel_cmd, run_raw(os_rel_cmd))
 
+    uname_cmd = "uname -a"
+    custom_print("Kernel Version", uname_cmd, run_raw(uname_cmd))
+
     dirs_on_PATH_cmd = 'for d in $(echo $PATH | tr ":" " "); do ls -ld "$d"; done'
     custom_print("Directories on $PATH", dirs_on_PATH_cmd, run_raw(dirs_on_PATH_cmd))
 
