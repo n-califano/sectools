@@ -5,6 +5,8 @@ import subprocess
 import os
 import sys
 from datetime import datetime
+import urllib.request
+import json
 
 ### Wordlists
 SECLISTS = "/usr/share/seclists"
@@ -19,6 +21,8 @@ WL = {
     "api_leaky":    f"{SECLISTS}/Discovery/Web-Content/api/leaky_paths.txt",
     "graphql":      f"{SECLISTS}/Discovery/Web-Content/graphql.txt",
     "params":       f"{SECLISTS}/Discovery/Web-Content/burp-parameter-names.txt",
+    "vhost_small":  f"{SECLISTS}/Discovery/DNS/subdomains-top1million-5000.txt",
+    "vhost_medium": f"{SECLISTS}/Discovery/DNS/subdomains-top1million-20000.txt",
 }
 
 ### Wordlist sets per mode/size
@@ -125,6 +129,97 @@ def merge_paths(all_paths, new_paths):
         else:
             all_paths[path].add(status)
 
+def get_baseline_size(target, domain):
+    """
+    Request the target with a garbage Host header to get the
+    default response size, used as ffuf -fs filter value.
+    This is needed for vhost enumeration: without filtering
+    for the default response size it will get a false positive 
+    for every word
+    """
+    try:
+        req = urllib.request.Request(target, headers={"Host": f"nonexistent.{domain}"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            size = len(r.read())
+            info(f"Baseline response size: {size} bytes")
+            return size
+    except Exception as e:
+        warn(f"Could not determine baseline size: {e}")
+        return None
+    
+def run_ffuf_vhost(target, domain, wordlist_path, outfile, filter_size=None):
+    cmd = [
+        "ffuf",
+        "-u", target,
+        "-H", f"Host: FUZZ.{domain}",
+        "-w", wordlist_path,
+        "-mc", "200,201,204,301,302,307,401,403,405,500",
+        "-o", outfile,
+        "-of", "csv",
+        "-s",
+    ]
+    if filter_size is not None:
+        cmd += ["-fs", str(filter_size)]
+    else:
+        warn("No baseline size — vhost results may contain false positives")
+
+    info(f"ffuf vhost  →  FUZZ.{domain}  (wordlist: {wordlist_path})")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        warn(f"ffuf vhost exited with code {result.returncode}")
+
+def parse_vhost_csv(filepath, domain):
+    """Extract discovered vhost names from an ffuf vhost CSV."""
+    results = []
+    if not os.path.isfile(filepath):
+        return results
+    with open(filepath) as f:
+        for i, line in enumerate(f):
+            if i == 0:
+                continue
+            parts = line.strip().split(",")
+            if len(parts) >= 11:
+                raw_input = parts[10].strip().strip('"')
+                try:
+                    subdomain = json.loads(raw_input).get("FUZZ", "").strip()
+                except (json.JSONDecodeError, AttributeError):
+                    subdomain = raw_input  # fallback: raw value
+                if subdomain:
+                    results.append(f"{subdomain}.{domain}")
+    return results
+    
+def enumerate_host(target, label, outdir, args, size):
+    """Run requested modes on a single host, writing output to outdir/label/."""
+    info(f"\n--- Enumerating: {label} ---")
+    host_outdir = os.path.join(outdir, label)
+    os.makedirs(host_outdir, exist_ok=True)
+    all_paths = {}
+
+    if args.web or args.api:
+        check_tool("ffuf")
+        modes = []
+        if args.web: modes.append("web")
+        if args.api: modes.append("api")
+        for mode in modes:
+            for wl_key in WORDLISTS[mode][size]:
+                wl_path = check_wordlist(wl_key)
+                if not wl_path:
+                    continue
+                outfile = os.path.join(host_outdir, f"{mode}_{wl_key}.csv")
+                run_ffuf(target, wl_path, outfile)
+                merge_paths(all_paths, parse_ffuf_csv(outfile))
+
+    if args.param_discovery:
+        check_tool("arjun")
+        wl_path = check_wordlist("params")
+        if wl_path:
+            outfile = os.path.join(host_outdir, "params.txt")
+            run_arjun(target, wl_path, outfile)
+            success(f"Arjun results → {outfile}")
+
+    if all_paths:
+        summary_file = os.path.join(host_outdir, "summary.txt")
+        write_summary(all_paths, summary_file)
 
 ### Main
 def main():
@@ -143,51 +238,52 @@ def main():
     parser.add_argument("--web", action="store_true", help="Standard web directory enumeration")
     parser.add_argument("--api", action="store_true", help="API endpoint enumeration")
     parser.add_argument("--param-discovery", action="store_true", help="HTTP parameter discovery (use full endpoint as -t)")
+    parser.add_argument("--vhost", metavar="DOMAIN", help="Vhost enumeration against base domain (e.g. example.htb)")
     parser.add_argument("--medium", action="store_true", help="Use larger wordlists (default: small)")
     args = parser.parse_args()
 
-    if not any([args.web, args.api, args.param_discovery]):
-        parser.error("Specify at least one mode: --web, --api, --param-discovery")
+    if not any([args.web, args.api, args.param_discovery, args.vhost]):
+        parser.error("Specify at least one mode: --web, --api, --param-discovery, --vhost")
 
     target = args.target.rstrip("/")
     size = "medium" if args.medium else "small"
     outdir = f"./subdirenum_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(outdir)
     info(f"Target : {target}")
-    info(f"Mode : {'web ' if args.web else ''}{'api ' if args.api else ''}{'param-discovery' if args.param_discovery else ''}")
+    info(f"Mode : {'web ' if args.web else ''}{'api ' if args.api else ''}{'param-discovery' if args.param_discovery else ''}{'vhost ' if args.vhost else ''}")
     info(f"Size : {size}")
     info(f"Output : {outdir}\n")
 
-    ### Path fuzzing (ffuf)
-    all_paths = {}
+    vhost_targets = []  # list of (url, label) to enumerate after vhost step
 
-    if args.web or args.api:
+    ### Step 1: vhost enumeration
+    if args.vhost:
         check_tool("ffuf")
-        modes = []
-        if args.web: modes.append("web")
-        if args.api: modes.append("api")
-
-        for mode in modes:
-            for wl_key in WORDLISTS[mode][size]:
-                wl_path = check_wordlist(wl_key)
-                if not wl_path:
-                    continue
-                outfile = os.path.join(outdir, f"{mode}_{wl_key}.csv")
-                run_ffuf(target, wl_path, outfile)
-                merge_paths(all_paths, parse_ffuf_csv(outfile))
-
-        summary_file = os.path.join(outdir, "summary.txt")
-        write_summary(all_paths, summary_file)
-
-    ### Parameter discovery (arjun)
-    if args.param_discovery:
-        check_tool("arjun")
-        wl_path = check_wordlist("params")
+        wl_key = "vhost_medium" if args.medium else "vhost_small"
+        wl_path = check_wordlist(wl_key)
         if wl_path:
-            outfile = os.path.join(outdir, "params.txt")
-            run_arjun(target, wl_path, outfile)
-            success(f"Arjun results → {outfile}")
+            baseline = get_baseline_size(target, args.vhost)
+            vhost_csv = os.path.join(outdir, "vhosts.csv")
+            run_ffuf_vhost(target, args.vhost, wl_path, vhost_csv, filter_size=baseline)
 
+            discovered = parse_vhost_csv(vhost_csv, args.vhost)
+
+            vhost_summary = os.path.join(outdir, "vhosts.txt")
+            with open(vhost_summary, "w") as f:
+                f.write(f"# vhosts discovered - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                for h in discovered:
+                    f.write(f"{h}\n")
+            success(f"Vhosts → {vhost_summary}  ({len(discovered)} found)")
+
+            for vhost in discovered:
+                vhost_targets.append((f"http://{vhost}", vhost))
+
+    ### Step 2 — path/param enumeration on base target + discovered vhosts
+    if any([args.web, args.api, args.param_discovery]):
+        # always include base target
+        all_targets = [(target, "base")] + vhost_targets
+        for t_url, t_label in all_targets:
+            enumerate_host(t_url, t_label, outdir, args, size)
 
 if __name__ == "__main__":
     main()
