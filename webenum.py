@@ -23,6 +23,7 @@ WL = {
     "params":       f"{SECLISTS}/Discovery/Web-Content/burp-parameter-names.txt",
     "vhost_small":  f"{SECLISTS}/Discovery/DNS/subdomains-top1million-5000.txt",
     "vhost_medium": f"{SECLISTS}/Discovery/DNS/subdomains-top1million-20000.txt",
+    "vhost_large":  f"{SECLISTS}/Discovery/DNS/namelist.txt",
 }
 
 ### Wordlist sets per mode/size
@@ -34,6 +35,48 @@ WORDLISTS = {
     "api": {
         "small":  ["api_objects", "api_actions", "graphql", "raft_small"],
         "medium": ["api_objects", "api_actions", "api_leaky", "graphql", "raft_medium"],
+    },
+        "vhost": {
+        "small":  ["vhost_small"],
+        "medium": ["vhost_medium"],
+        "large":  ["vhost_large"],
+    },
+}
+
+COMMON_FILES = [
+    "robots.txt",
+    "sitemap.xml",
+    ".git/HEAD",
+    ".git/config",
+    "security.txt",
+    ".well-known/security.txt",
+    "crossdomain.xml",
+    "clientaccesspolicy.xml",
+    "humans.txt",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    ".env",
+    "config.php",
+    "wp-login.php",
+    "phpinfo.php",
+    ".htaccess",
+]
+
+EXTENSION_HINTS = {
+    # header name (lowercase) : { substring : [extensions] }
+    "x-powered-by": {
+        "php":    [".php"],
+        "asp":    [".asp", ".aspx"],
+        "mono":   [".aspx"],
+    },
+    "set-cookie": {
+        "phpsessid":  [".php"],
+        "aspsessionid": [".asp", ".aspx"],
+        "jsessionid": [".jsp"],
+    },
+    "server": {
+        "php":    [".php"],
     },
 }
 
@@ -59,7 +102,7 @@ def check_wordlist(key):
     return path
 
 
-def run_ffuf(target, wordlist_path, outfile):
+def run_ffuf(target, wordlist_path, outfile, recursive, extensions=None):
     cmd = [
         "ffuf",
         "-u", f"{target}/FUZZ",
@@ -69,7 +112,11 @@ def run_ffuf(target, wordlist_path, outfile):
         "-of", "csv",
         "-s",           # silent -> no banner, cleaner output
     ]
-    info(f"ffuf  →  {wordlist_path}")
+    if recursive:
+        cmd += ["-recursion", "-recursion-depth", "2"]
+    if extensions:
+        cmd += ["-e", ",".join(extensions)]
+    info(f"ffuf  →  {wordlist_path}" + (f"  (extensions: {extensions})" if extensions else ""))
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         warn(f"ffuf exited with code {result.returncode}")
@@ -88,6 +135,44 @@ def run_arjun(target, wordlist_path, outfile):
     if result.returncode != 0:
         warn(f"arjun exited with code {result.returncode}")
 
+def run_ffuf_vhost(target, domain, wordlist_path, outfile, filter_size=None):
+    cmd = [
+        "ffuf",
+        "-u", target,
+        "-H", f"Host: FUZZ.{domain}",
+        "-w", wordlist_path,
+        "-mc", "200,201,204,301,302,307,401,403,405,500",
+        "-o", outfile,
+        "-of", "csv",
+        "-s",
+    ]
+    if filter_size is not None:
+        cmd += ["-fs", str(filter_size)]
+    else:
+        warn("No baseline size — vhost results may contain false positives")
+
+    info(f"ffuf vhost  →  FUZZ.{domain}  (wordlist: {wordlist_path})")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        warn(f"ffuf vhost exited with code {result.returncode}")
+
+def check_common_files(target):
+    info("Checking common files...")
+    found = {}
+    for path in COMMON_FILES:
+        url = f"{target}/{path}"
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=8) as r:
+                found[url] = str(r.status)
+                success(f"{r.status}  {url}")
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                found[url] = str(e.code)
+                #info(f"{e.code}  {url}")
+        except Exception:
+            pass
+    return found
 
 def parse_ffuf_csv(filepath):
     """Extract found paths from an ffuf CSV output file."""
@@ -107,6 +192,20 @@ def parse_ffuf_csv(filepath):
                     results[url] = status_code
     return results
 
+def parse_vhost_csv(filepath, domain):
+    results = []
+    if not os.path.isfile(filepath):
+        return results
+    with open(filepath) as f:
+        for i, line in enumerate(f):
+            if i == 0:
+                continue
+            parts = line.strip().split(",")
+            if len(parts) >= 1:
+                subdomain = parts[0].strip().strip('"')
+                if subdomain:
+                    results.append(f"{subdomain}.{domain}")
+    return results
 
 def write_summary(all_paths, outfile):
     sorted_paths = sorted(all_paths.items(), key=lambda x: (min(x[1]), x[0]))
@@ -147,66 +246,93 @@ def get_baseline_size(target, domain):
         warn(f"Could not determine baseline size: {e}")
         return None
     
-def run_ffuf_vhost(target, domain, wordlist_path, outfile, filter_size=None):
-    cmd = [
-        "ffuf",
-        "-u", target,
-        "-H", f"Host: FUZZ.{domain}",
-        "-w", wordlist_path,
-        "-mc", "200,201,204,301,302,307,401,403,405,500",
-        "-o", outfile,
-        "-of", "csv",
-        "-s",
-    ]
-    if filter_size is not None:
-        cmd += ["-fs", str(filter_size)]
+def detect_extensions(target, extra=None):
+    """
+    Infer likely extensions from response headers.
+    Optionally merge with manually supplied list.
+    Returns a deduplicated list of extensions.
+    """
+    detected = set()
+
+    detected.update(detect_extensions_from_url(target))
+
+    detected.update(detect_extensions_from_header(target))
+
+    if extra:
+        manual = {e if e.startswith(".") else f".{e}" for e in extra.split(",")}
+        detected.update(manual)
+        info(f"Manual extensions added: {manual}")
+
+    if detected:
+        success(f"Extensions to fuzz: {sorted(detected)}")
     else:
-        warn("No baseline size — vhost results may contain false positives")
+        info("No extensions detected, fuzzing bare paths only")
 
-    info(f"ffuf vhost  →  FUZZ.{domain}  (wordlist: {wordlist_path})")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        warn(f"ffuf vhost exited with code {result.returncode}")
+    return sorted(detected)
 
-def parse_vhost_csv(filepath, domain):
-    """Extract discovered vhost names from an ffuf vhost CSV."""
-    results = []
-    if not os.path.isfile(filepath):
-        return results
-    with open(filepath) as f:
-        for i, line in enumerate(f):
-            if i == 0:
-                continue
-            parts = line.strip().split(",")
-            if len(parts) >= 11:
-                raw_input = parts[10].strip().strip('"')
-                try:
-                    subdomain = json.loads(raw_input).get("FUZZ", "").strip()
-                except (json.JSONDecodeError, AttributeError):
-                    subdomain = raw_input  # fallback: raw value
-                if subdomain:
-                    results.append(f"{subdomain}.{domain}")
-    return results
+def detect_extensions_from_header(target):
+    detected = set()
+    try:
+        req = urllib.request.Request(target)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            headers = {k.lower(): v.lower() for k, v in r.headers.items()}
+            #info(f"Response headers: {dict(headers)}")  # debug line
+            for header, hints in EXTENSION_HINTS.items():
+                value = headers.get(header, "")
+                for substring, exts in hints.items():
+                    if substring in value:
+                        detected.update(exts)
+                        info(f"Extension hint: '{header}: {value}' → {exts}")
+        return detected
+    except Exception as e:
+        warn(f"Could not detect extensions: {e}")
+
+def detect_extensions_from_url(target):
+    """Infer extensions by scraping index page links."""
+    EXTENSION_IGNORE = {".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf"}
+    detected = set()
+    try:
+        req = urllib.request.Request(target)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            body = r.read().decode("utf-8", errors="ignore")
+            import re
+            links = re.findall(r'(?:href|src|action)=["\']([^"\'?#]+)', body)
+            for link in links:
+                _, ext = os.path.splitext(link)
+                if ext and len(ext) <= 5 and ext not in EXTENSION_IGNORE:
+                    detected.add(ext)
+                    #info(f"Extension hint from page link: {ext}")
+    except Exception as e:
+        warn(f"Could not scrape index for extensions: {e}")
+    return detected
     
-def enumerate_host(target, label, outdir, args, size):
+def enumerate_host(target, label, outdir, args, web_size, api_size):
     """Run requested modes on a single host, writing output to outdir/label/."""
     info(f"\n--- Enumerating: {label} ---")
     host_outdir = os.path.join(outdir, label)
     os.makedirs(host_outdir, exist_ok=True)
     all_paths = {}
 
+    merge_paths(all_paths, check_common_files(target)) 
+
     if args.web or args.api:
         check_tool("ffuf")
+        extensions = detect_extensions(target, extra=args.extensions)
         modes = []
         if args.web: modes.append("web")
         if args.api: modes.append("api")
+        seen_wordlists = set()
         for mode in modes:
-            for wl_key in WORDLISTS[mode][size]:
+            for wl_key in WORDLISTS[mode][web_size if mode == "web" else api_size]:
+                if wl_key in seen_wordlists:
+                    info(f"Skipping duplicate wordlist: {wl_key}")
+                    continue
+                seen_wordlists.add(wl_key)
                 wl_path = check_wordlist(wl_key)
                 if not wl_path:
                     continue
                 outfile = os.path.join(host_outdir, f"{mode}_{wl_key}.csv")
-                run_ffuf(target, wl_path, outfile)
+                run_ffuf(target, wl_path, outfile, args.recursive, extensions)
                 merge_paths(all_paths, parse_ffuf_csv(outfile))
 
     if args.param_discovery:
@@ -239,19 +365,27 @@ def main():
     parser.add_argument("--api", action="store_true", help="API endpoint enumeration")
     parser.add_argument("--param-discovery", action="store_true", help="HTTP parameter discovery (use full endpoint as -t)")
     parser.add_argument("--vhost", metavar="DOMAIN", help="Vhost enumeration against base domain (e.g. example.htb)")
-    parser.add_argument("--medium", action="store_true", help="Use larger wordlists (default: small)")
+    parser.add_argument("--medium", action="store_true", help="Use medium wordlists globally (default: small)")
+    parser.add_argument("--web-size", choices=["small", "medium"], default=None)
+    parser.add_argument("--api-size", choices=["small", "medium"], default=None)
+    parser.add_argument("--vhost-size", choices=["small", "medium", "large"], default=None)
+    parser.add_argument("--extensions", metavar="EXT", help="Comma-separated extensions to fuzz (e.g. php,html). Combined with autodetect.", default=None,)
+    parser.add_argument("--recursive", action="store_true", help="Recurse into discovered directories")
     args = parser.parse_args()
 
     if not any([args.web, args.api, args.param_discovery, args.vhost]):
         parser.error("Specify at least one mode: --web, --api, --param-discovery, --vhost")
 
     target = args.target.rstrip("/")
-    size = "medium" if args.medium else "small"
+    global_size = "medium" if args.medium else "small"
+    web_size   = args.web_size   or global_size
+    api_size   = args.api_size   or global_size
+    vhost_size = args.vhost_size or global_size
     outdir = f"./subdirenum_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(outdir)
     info(f"Target : {target}")
     info(f"Mode : {'web ' if args.web else ''}{'api ' if args.api else ''}{'param-discovery' if args.param_discovery else ''}{'vhost ' if args.vhost else ''}")
-    info(f"Size : {size}")
+    info(f"Size   : web={web_size} api={api_size} vhost={vhost_size}")
     info(f"Output : {outdir}\n")
 
     vhost_targets = []  # list of (url, label) to enumerate after vhost step
@@ -259,7 +393,7 @@ def main():
     ### Step 1: vhost enumeration
     if args.vhost:
         check_tool("ffuf")
-        wl_key = "vhost_medium" if args.medium else "vhost_small"
+        wl_key = WORDLISTS["vhost"][vhost_size][0]
         wl_path = check_wordlist(wl_key)
         if wl_path:
             baseline = get_baseline_size(target, args.vhost)
@@ -283,7 +417,7 @@ def main():
         # always include base target
         all_targets = [(target, "base")] + vhost_targets
         for t_url, t_label in all_targets:
-            enumerate_host(t_url, t_label, outdir, args, size)
+            enumerate_host(t_url, t_label, outdir, args, web_size, api_size)
 
 if __name__ == "__main__":
     main()
