@@ -116,7 +116,7 @@ def run_ffuf(target, wordlist_path, outfile, recursive, extensions=None):
         cmd += ["-recursion", "-recursion-depth", "2"]
     if extensions:
         cmd += ["-e", ",".join(extensions)]
-    info(f"ffuf  →  {wordlist_path}" + (f"  (extensions: {extensions})" if extensions else ""))
+    info(f"ffuf cmd  →  {cmd}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         warn(f"ffuf exited with code {result.returncode}")
@@ -130,7 +130,7 @@ def run_arjun(target, wordlist_path, outfile):
         "--output-file", outfile,
         "-c", "5",
     ]
-    info(f"arjun →  {wordlist_path}")
+    info(f"arjun cmd  →  {cmd}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         warn(f"arjun exited with code {result.returncode}")
@@ -151,7 +151,7 @@ def run_ffuf_vhost(target, domain, wordlist_path, outfile, filter_size=None):
     else:
         warn("No baseline size — vhost results may contain false positives")
 
-    info(f"ffuf vhost  →  FUZZ.{domain}  (wordlist: {wordlist_path})")
+    info(f"ffuf vhost enum cmd  →  {cmd}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         warn(f"ffuf vhost exited with code {result.returncode}")
