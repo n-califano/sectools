@@ -46,6 +46,9 @@ def main():
     listening_ports_cmd = 'ss -tlnp'
     custom_print('Listening ports', listening_ports_cmd, run_raw(listening_ports_cmd))
 
+    users_cmd = 'cat /etc/passwd'
+    custom_print('Users', users_cmd, run_raw(users_cmd))
+
     sudo_perm_cmd = 'sudo -n -l'
     custom_print("Sudo Permissions", sudo_perm_cmd, run_raw(sudo_perm_cmd, timeout=3))
 
