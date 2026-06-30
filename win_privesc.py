@@ -1,5 +1,6 @@
 import sys
 import subprocess
+import os
 
 def run_raw(cmd, timeout=30):
     try:
@@ -32,6 +33,41 @@ def custom_print(label, cmd, output):
     print('-> {} ({}):\n{}\n'.format(label, cmd, output))
     sys.stdout.flush()
 
+def build_git_search_cmd(drive="C:\\"):
+    # Static top-level folders to skip
+    blacklist = [
+        os.path.join(drive, "Windows"),
+        os.path.join(drive, "Program Files"),
+        os.path.join(drive, "Program Files (x86)"),
+        os.path.join(drive, "ProgramData"),
+        os.path.join(drive, "$Recycle.Bin"),
+        os.path.join(drive, "System Volume Information"),
+        os.path.join(drive, "Recovery"),
+        os.path.join(drive, "Windows.old"),
+        os.path.join(drive, "PerfLogs"),
+    ]
+
+    # Add AppData for every user under C:\Users
+    users_dir = os.path.join(drive, "Users")
+    if os.path.isdir(users_dir):
+        for entry in os.scandir(users_dir):
+            if entry.is_dir():
+                blacklist.append(os.path.join(entry.path, "AppData"))
+
+    # Format as a PowerShell array literal: @('C:\Windows','C:\Users\bob\AppData',...)
+    ps_array = ",".join(f"'{p}'" for p in blacklist)
+
+    list_git_repos_cmd = (
+        f"$blacklist = @({ps_array}); "
+        f"$roots = Get-ChildItem -Path '{drive}' -Directory -Force -ErrorAction SilentlyContinue "
+        f"| Where-Object {{ $blacklist -notcontains $_.FullName }}; "
+        f"foreach ($root in $roots) {{ "
+        f"Get-ChildItem -Path $root.FullName -Directory -Filter '.git' -Recurse -Force -ErrorAction SilentlyContinue "
+        f"}}"
+    )
+
+    return list_git_repos_cmd
+
 def main():
     whoami_cmd = "whoami /all"
     custom_print("User Information", whoami_cmd, run_raw(whoami_cmd))
@@ -56,7 +92,7 @@ def main():
     list_creds_cmd = r"cmdkey /list"
     custom_print("Credentials in Windows Credentials Manager", list_creds_cmd, run_raw(list_creds_cmd))
 
-    list_git_repos_cmd = r'Get-ChildItem -Path C:\ -Directory -Filter ".git" -Recurse -Force -ErrorAction SilentlyContinue'
+    list_git_repos_cmd = build_git_search_cmd()
     custom_print("Git Repositories", list_git_repos_cmd, run_ps(list_git_repos_cmd, timeout=300))
 
     list_onedrive_cmd = 'dir "%OneDrive%"'
