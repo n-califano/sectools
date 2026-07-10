@@ -124,6 +124,12 @@ function Main {
     $oneDrive = Invoke-PSCommand 'dir "$env:OneDrive"'
     Write-CustomOutput "OneDrive" 'dir "$env:OneDrive"' $oneDrive
 
+    $netstat = Invoke-PSCommand 'netstat -ano'
+    Write-CustomOutput "Listening Ports" 'netstat -ano' $netstat
+
+    $ps = Invoke-PSCommand 'ps'
+    Write-CustomOutput "Processes" 'ps' $ps
+
     Write-Host "Manual Checks:"
     Write-Host '-> SMB (smbclient -L //<TARGET_IP> -U <USER>)'
     Write-Host "Run the smbclient command manually, if you have a valid password for the user"
