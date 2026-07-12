@@ -89,6 +89,41 @@ foreach (`$root in `$roots) {
     return $cmd
 }
 
+function Get-Services {
+    $services = $null
+    $cmds = @(
+        { Get-WmiObject win32_service | Where-Object {$_.StartName -notlike "*LocalService*" -and $_.StartName -notlike "*NetworkService*"} | Select Name, DisplayName, PathName, StartName | FL | Out-String -Width 500 },
+        { Get-CimInstance -ClassName Win32_Service | Where-Object {$_.StartName -notlike "*LocalService*" -and $_.StartName -notlike "*NetworkService*" -and $_.StartName -notlike "*LocalSystem*"} | Select Name, DisplayName, PathName, StartName | FL | Out-String -Width 500 },
+        { sc.exe query type= service state= all | Out-String },
+        { Get-ChildItem HKLM:\SYSTEM\CurrentControlSet\Services | Get-ItemProperty | Select PSChildName, ImagePath, ObjectName | FL | Out-String -Width 500 }
+    )
+
+    $successful_cmd = "All methods failed"
+    foreach ($cmd in $cmds) {
+        try { 
+            $services = & $cmd 2>$null 
+            if ($services -and $services.Trim()) { 
+                $successful_cmd = $cmd 
+                break 
+            } 
+        } catch { continue }
+    }
+
+    Write-CustomOutput "Services" $successful_cmd $services
+}
+
+function Get-IISDir {
+    $path = "C:\inetpub\wwwroot"
+    $checkCmd = "Test-Path $path"
+    $pathExists = Invoke-PSCommand $checkCmd
+
+    if ($pathExists -like "*True*") {
+        $wwwroot = Invoke-PSCommand "dir $path"
+    } else {
+        $wwwroot = "Default web root directory not found"
+    }
+    Write-CustomOutput "Default web root directory for IIS" "dir $path" $wwwroot
+}
 
 function Main {
     $whoami = Invoke-PSCommand "whoami /all"
@@ -100,15 +135,9 @@ function Main {
     $installed = Invoke-PSCommand 'dir -Path "C:\Program Files", "C:\Program Files (x86)"'
     Write-CustomOutput "Installed Programs" 'dir -Path "C:\Program Files", "C:\Program Files (x86)"' $installed
 
-    $wwwroot = Invoke-PSCommand "dir C:\inetpub\wwwroot"
-    if ($wwwroot -like "*File Not Found*") {
-        $wwwroot = "Default web root directory not found"
-    }
-    Write-CustomOutput "Default web root directory for IIS" "dir C:\inetpub\wwwroot" $wwwroot
+    Get-IISDir
 
-    $servicesCmd = 'Get-WmiObject win32_service | Where-Object {$_.StartName -notlike "*LocalService*" -and $_.StartName -notlike "*NetworkService*"} | Select Name, DisplayName, PathName, StartName | Format-List | Out-String -Width 500'
-    $services = Invoke-PSCommand $servicesCmd
-    Write-CustomOutput "Services" $servicesCmd $services
+    Get-Services
 
     $envCmd = 'Get-ChildItem Env: | ForEach-Object { "$($_.Name)=$($_.Value)" }'
     $envVars = Invoke-PSCommand $envCmd
