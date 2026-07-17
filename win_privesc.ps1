@@ -1,10 +1,13 @@
 function Write-CustomOutput {
-    param(
-        [string]$Label,
-        [string]$Command,
-        [string]$Output
-    )
-    Write-Host "-> $Label ($Command):"
+    param([string]$Label, [string]$Command, [string]$Output)
+    
+    $line = "#" * 60
+    $title = "$Label".ToUpper()
+    $centered = $title.PadLeft($title.Length + (56 - $title.Length) / 2).PadRight(56)
+    
+    Write-Host "`n$line`n# $centered #`n$line`n"
+    Write-Host "Command: $Command"
+    Write-Host ""
     Write-Host $Output
     Write-Host ""
 }
