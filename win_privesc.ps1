@@ -14,22 +14,51 @@ function Invoke-CmdCommand {
         [string]$Command,
         [int]$Timeout = 30
     )
-    $fullCmd = "cmd /c $Command"
+    
+    $tempOut = [System.IO.Path]::GetTempFileName()
+    $tempErr = [System.IO.Path]::GetTempFileName()
+    
     try {
-        $job = Start-Job -ScriptBlock { & $using:fullCmd 2>&1 | Out-String }
-        if (Wait-Job $job -Timeout $Timeout) {
-            $output = Receive-Job $job
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "cmd.exe"
+        $psi.Arguments = "/c $Command"
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $psi
+        $process.Start() | Out-Null
+        
+        # Async read to prevent deadlocks on large output
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        
+        if ($process.WaitForExit($Timeout * 1000)) {
+            $output = $stdout.Result
+            $errorOutput = $stderr.Result
+            
+            if ($process.ExitCode -ne 0 -and $errorOutput) {
+                $output = "EXIT CODE $($process.ExitCode): $errorOutput`n$output"
+            }
         }
         else {
-            Stop-Job $job
+            $process.Kill()
             $output = "Command timed out after $Timeout seconds."
         }
-        Remove-Job $job -Force
+        
+        $process.Dispose()
     }
     catch {
         $output = $_.Exception.Message
     }
-    return ($output -join "`n").Trim()
+    finally {
+        if (Test-Path $tempOut) { Remove-Item $tempOut -ErrorAction SilentlyContinue }
+        if (Test-Path $tempErr) { Remove-Item $tempErr -ErrorAction SilentlyContinue }
+    }
+    
+    return $output.Trim()
 }
 
 function Invoke-PSCommand {
@@ -37,21 +66,48 @@ function Invoke-PSCommand {
         [string]$Command,
         [int]$Timeout = 30
     )
+    
+    # Encode command to avoid escaping issues and CLM restrictions on complex args
+    $wrappedCommand = "`$ProgressPreference='SilentlyContinue'; $Command"   # Silence progress to avoid it leaking into stderr (CLIXML)
+    $bytes = [System.Text.Encoding]::Unicode.GetBytes($wrappedCommand)
+    $encodedCommand = [Convert]::ToBase64String($bytes)
+    
     try {
-        $job = Start-Job -ScriptBlock { Invoke-Expression $using:Command 2>&1 | Out-String }
-        if (Wait-Job $job -Timeout $Timeout) {
-            $output = Receive-Job $job
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "powershell.exe"
+        $psi.Arguments = "-EncodedCommand $encodedCommand -NoProfile -ExecutionPolicy Bypass"
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $psi
+        $process.Start() | Out-Null
+        
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        
+        if ($process.WaitForExit($Timeout * 1000)) {
+            $output = $stdout.Result
+            $errorOutput = $stderr.Result
+            
+            if ($errorOutput) {
+                $output = "ERROR: $errorOutput`n$output"
+            }
         }
         else {
-            Stop-Job $job
+            $process.Kill()
             $output = "Command timed out after $Timeout seconds."
         }
-        Remove-Job $job -Force
+        
+        $process.Dispose()
     }
     catch {
         $output = $_.Exception.Message
     }
-    return ($output -join "`n").Trim()
+    
+    return $output.Trim()
 }
 
 function Build-GitSearchCommand {
@@ -125,12 +181,36 @@ function Get-IISDir {
     Write-CustomOutput "Default web root directory for IIS" "dir $path" $wwwroot
 }
 
+function Invoke-SystemCheck {
+    param(
+        [string]$Label,
+        [scriptblock]$ScriptBlock
+    )
+
+    $commandString = $ScriptBlock.ToString().Trim()
+    
+    try {
+        $output = & $ScriptBlock 2>&1 | Out-String
+        
+        if ($LASTEXITCODE -ne 0 -or $output -match "^ERROR:") {
+            Write-Host "-> $Label ($commandString):"
+            Write-Host "ERROR: $output"
+        }
+        else {
+            Write-CustomOutput $Label $commandString $output
+        }
+    }
+    catch {
+        Write-Host "-> $Label ($commandString):"
+        Write-Host "EXCEPTION: $($_.Exception.Message)"
+    }
+}
+
 function Main {
     $whoami = Invoke-PSCommand "whoami /all"
     Write-CustomOutput "User Information" "whoami /all" $whoami
 
-    $systeminfo = Invoke-PSCommand "systeminfo"
-    Write-CustomOutput "System Information" "systeminfo" $systeminfo
+    Invoke-SystemCheck "System Information" { systeminfo }
 
     $installed = Invoke-PSCommand 'dir -Path "C:\Program Files", "C:\Program Files (x86)"'
     Write-CustomOutput "Installed Programs" 'dir -Path "C:\Program Files", "C:\Program Files (x86)"' $installed
@@ -147,7 +227,7 @@ function Main {
     Write-CustomOutput "Credentials in Windows Credentials Manager" "cmdkey /list" $creds
 
     $gitCmd = Build-GitSearchCommand
-    $gitOutput = Invoke-PSCommand $gitCmd -Timeout 300
+    #$gitOutput = Invoke-PSCommand $gitCmd -Timeout 300
     Write-CustomOutput "Git Repositories" $gitCmd $gitOutput
 
     $oneDrive = Invoke-PSCommand 'dir "$env:OneDrive"'
