@@ -36,7 +36,7 @@ def run_cmd(cmd):
         warn("Command timed out")
         return None
     except FileNotFoundError:
-        warn("impacket-mssqlclient not found in PATH")
+        warn(f"{cmd[0]} not found in PATH")
         return None
 
 
@@ -257,17 +257,20 @@ def run_smb_check(target_ip, username, password):
 
 
 ### LDAP
-def run_ldap_command(target_ip, base_dn, filter_query, port=389):
-    """
-    Execute ldapsearch command.
-    """
-    cmd = [
-        "ldapsearch",
-        "-x",
-        "-H", f"ldap://{target_ip}:{port}",
-        "-b", base_dn,
-        filter_query
-    ]
+def run_ldap_command(target_ip, domain, filter_query, username, password, port=389, use_tls=False):
+    base_dn = domain_to_base_dn(domain)
+
+    uri = f"ldaps://{target_ip}" if use_tls else f"ldap://{target_ip}:{port}"
+
+    if username and password:
+        cmd = ["ldapsearch", "-x", "-H", uri, "-D", f"{username}@{domain}", 
+               "-w", password, "-b", base_dn, filter_query]
+    else:
+        cmd = ["ldapsearch", "-x", "-H", uri, "-b", base_dn, filter_query]
+
+    if use_tls:
+        # Disable certificate verification
+        cmd = ["env", "LDAPTLS_REQCERT=never", *cmd]
     
     result = run_cmd(cmd)
         
@@ -277,24 +280,30 @@ def run_ldap_command(target_ip, base_dn, filter_query, port=389):
     return result
         
 
-def enum_ldap_users(target_ip, base_dn, port=389):
+def enum_ldap_users(target_ip, domain, username, password, port=389):
     """Enumerate LDAP users."""
-    result = run_ldap_command(target_ip, base_dn, "(objectClass=user)", port)
+    result = run_ldap_command(target_ip, domain, "(objectClass=user)", username, password, port)
+
+    if result.returncode == 8: 
+        print("[*] Stronger authentication required, trying with ldaps...")
+        result = run_ldap_command(target_ip, domain, "(objectClass=user)", username, password, use_tls=True)
+
     if result:
         print("[+] LDAP Users:")
-        print(result.stdout + "\n")
+        print(result.stdout)
+        print(result.stderr)
 
 
-def run_ldap_check(target_ip, base_dn, port=389):
+def run_ldap_check(target_ip, domain, username, password, port=389):
     """
     Main LDAP enumeration function.
     """
     print_title("LDAP Enumeration")
     
     info(f"Connecting to ldap://{target_ip}:{port}")
-    info(f"Base DN: {base_dn}")
+    info(f"Domain: {domain}")
     
-    enum_ldap_users(target_ip, base_dn, port)
+    enum_ldap_users(target_ip, domain, username, password, port)
 
 
 ### Users Enumeration
@@ -386,9 +395,9 @@ def main():
 
     if "ldap" in args.services:
         if args.domain:
-            run_ldap_check(args.target_ip, domain_to_base_dn(args.domain))
+            run_ldap_check(args.target_ip, args.domain, args.username, args.password)
         else:
-            print("Error: need to provide base dn to run ldap check")
+            print("Error: need to provide domain to run ldap check")
 
     if "usersenum" in args.services:
         run_users_enum_check(args.target_ip)
