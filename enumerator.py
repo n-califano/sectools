@@ -331,7 +331,7 @@ def run_asrep_check(target_ip, domain, user=None, user_file=None):
     if user_file:
         cmd = ["impacket-GetNPUsers", f"{domain}/", "-usersfile", user_file, "-dc-ip", target_ip]
     elif user:
-        cmd = ["impacket-GetNPUsers", f"{domain}/Ryan.Cooper", "-dc-ip", target_ip, "-no-pass"]
+        cmd = ["impacket-GetNPUsers", f"{domain}/{user}", "-dc-ip", target_ip, "-no-pass"]
 
     result = run_cmd(cmd)
     if result:
