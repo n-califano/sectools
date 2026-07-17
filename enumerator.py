@@ -64,9 +64,12 @@ def clean_mssql_output(output):
 
 #TODO: currently this method is never called with win_auth=True, consider adding a condition to run it
 def run_mssql_command(target_ip, username, password, command, port=1433, win_auth=False):
-    cmd = ["impacket-mssqlclient", f"{username}:{password}@{target_ip}", "-p", str(port),
-           "-windows-auth" if win_auth else "",
-           "-command", command]
+    cmd = ["impacket-mssqlclient", f"{username}:{password}@{target_ip}", "-p", str(port)]
+    
+    if win_auth:
+        cmd.append("-windows-auth")
+    
+    cmd.extend(["-command", command])
 
     result = run_cmd(cmd)
     
@@ -363,6 +366,8 @@ def run_adcs_check(target_ip, domain, username, password):
 
 ### Main
 def main():
+    all_services = ["smb", "mssql", "ldap", "usersenum", "as-rep", "reuse", "adcs"]
+
     parser = argparse.ArgumentParser(
         description="Enumeration Script",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -381,10 +386,10 @@ def main():
     parser.add_argument("-d", dest="domain", required=False, help="Domain")
     parser.add_argument("-U", dest="userfile", required=False, help="Path to a users file, one username per line")
     parser.add_argument("-P", dest="password_file", required=False, help="Path to a passwords file, one password per line")
-    parser.add_argument("-s", dest="services", required=True,
+    parser.add_argument("-s", dest="services", required=False,
                         type=lambda s: [x.strip().lower() for x in s.split(',')],
-                        #default=["smb", "mssql"],
-                        help="Services to enumerate (comma-separated, e.g., smb,mssql,ldap)")
+                        default=all_services, choices=all_services,
+                        help="Services to enumerate (comma-separated, e.g., smb,mssql,ldap). If not specified defaults to all")
 
     args = parser.parse_args()
 
@@ -397,13 +402,13 @@ def main():
         if args.username and args.password:
             run_mssql_check(args.target_ip, args.username, args.password)
         else:
-            print("Error: need to provide username and password to run mssql check")
+            print("[!] Error: need to provide username and password to run mssql check")
 
     if "ldap" in args.services:
         if args.domain:
             run_ldap_check(args.target_ip, args.domain, args.username, args.password)
         else:
-            print("Error: need to provide domain to run ldap check")
+            print("[!] Error: need to provide domain to run ldap check")
 
     if "usersenum" in args.services:
         run_users_enum_check(args.target_ip)
@@ -418,13 +423,13 @@ def main():
         if args.userfile and args.password_file:
             run_password_reuse_check(args.target_ip, args.userfile, args.password_file)
         else:
-            print("Error: need to provide a user file and a passwords file to run the password reuse check")
+            print("[!] Error: need to provide a user file and a passwords file to run the password reuse check")
 
     if "adcs" in args.services:
         if args.domain and args.username and args.password:
             run_adcs_check(args.target_ip, args.domain, args.username, args.password)
         else:
-            print("Error: need to provide domain, username and password to run the adcs check")
+            print("[!] Error: need to provide domain, username and password to run the adcs check")
 
 if __name__ == "__main__":
     main()
