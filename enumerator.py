@@ -62,17 +62,11 @@ def clean_mssql_output(output):
     return "\n".join(cleaned).strip()
 
 
-def run_mssql_command(target_ip, username, password, command, port=1433):
-    """
-    Execute a single command via impacket-mssqlclient.
-    Returns subprocess.CompletedProcess or None on failure.
-    """
-    cmd = [
-        "impacket-mssqlclient",
-        f"{username}:{password}@{target_ip}",
-        "-p", str(port),
-        "-command", command
-    ]
+#TODO: currently this method is never called with win_auth=True, consider adding a condition to run it
+def run_mssql_command(target_ip, username, password, command, port=1433, win_auth=False):
+    cmd = ["impacket-mssqlclient", f"{username}:{password}@{target_ip}", "-p", str(port),
+           "-windows-auth" if win_auth else "",
+           "-command", command]
 
     result = run_cmd(cmd)
     
