@@ -343,6 +343,8 @@ def run_asrep_check(target_ip, domain, user=None, user_file=None):
 
 ### Password Reuse
 def run_password_reuse_check(target_ip, user_list, password_list):
+    print_title("Password Reuse")
+
     print("Password reuse check is broken since the command considers unexisting users as successful attempts. Fix the command or change tool. Skip for now")
     return
 
@@ -353,6 +355,16 @@ def run_password_reuse_check(target_ip, user_list, password_list):
         print("[+] Password Reuse:")
         print(result.stdout + result.stderr + "\n")
 
+
+### Active Directory Certificate Services (ADCS)
+def run_adcs_check(target_ip, domain, username, password):
+    print_title("AD CS Enumeration")
+
+    cmd = ["certipy-ad", "find", "-u", f"{username}@{domain}", "-p", password, "-dc-ip", target_ip, "-vulnerable"]
+
+    result = run_cmd(cmd)
+    if result:
+        print(result.stdout + result.stderr + "\n")
 
 
 ### Main
@@ -413,6 +425,12 @@ def main():
             run_password_reuse_check(args.target_ip, args.userfile, args.password_file)
         else:
             print("Error: need to provide a user file and a passwords file to run the password reuse check")
+
+    if "adcs" in args.services:
+        if args.domain and args.username and args.password:
+            run_adcs_check(args.target_ip, args.domain, args.username, args.password)
+        else:
+            print("Error: need to provide domain, username and password to run the adcs check")
 
 if __name__ == "__main__":
     main()
