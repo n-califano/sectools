@@ -252,6 +252,22 @@ function Invoke-SystemCheck {
     }
 }
 
+function Get-OneDrive {
+    $ScriptBlock = {Get-ChildItem $env:OneDrive | Out-String}
+
+    if (-not $env:OneDrive) {
+        Write-CustomOutput "OneDrive" $ScriptBlock.ToString().Trim() "OneDrive not configured for this user"
+        return
+    }
+    
+    if (Test-Path $env:OneDrive) {
+        $output = & $ScriptBlock
+        Write-CustomOutput "OneDrive" $ScriptBlock.ToString().Trim() $output
+    } else {
+        Write-CustomOutput "OneDrive" $ScriptBlock.ToString().Trim() "OneDrive path does not exist"
+    }
+}
+
 function Main {
     $whoami = Invoke-PSCommand "whoami /all"
     Write-CustomOutput "User Information" "whoami /all" $whoami
@@ -276,8 +292,7 @@ function Main {
     #$gitOutput = Invoke-PSCommand $gitCmd -Timeout 300
     Write-CustomOutput "Git Repositories" $gitCmd $gitOutput
 
-    $oneDrive = Invoke-PSCommand 'dir "$env:OneDrive"'
-    Write-CustomOutput "OneDrive" 'dir "$env:OneDrive"' $oneDrive
+    Get-OneDrive
 
     $netstat = Invoke-PSCommand 'netstat -ano'
     Write-CustomOutput "Listening Ports" 'netstat -ano' $netstat
