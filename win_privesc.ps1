@@ -149,26 +149,69 @@ foreach (`$root in `$roots) {
 }
 
 function Get-Services {
-    $services = $null
-    $cmds = @(
-        { Get-WmiObject win32_service | Where-Object {$_.StartName -notlike "*LocalService*" -and $_.StartName -notlike "*NetworkService*"} | Select Name, DisplayName, PathName, StartName | FL | Out-String -Width 500 },
-        { Get-CimInstance -ClassName Win32_Service | Where-Object {$_.StartName -notlike "*LocalService*" -and $_.StartName -notlike "*NetworkService*" -and $_.StartName -notlike "*LocalSystem*"} | Select Name, DisplayName, PathName, StartName | FL | Out-String -Width 500 },
-        { sc.exe query type= service state= all | Out-String },
-        { Get-ChildItem HKLM:\SYSTEM\CurrentControlSet\Services | Get-ItemProperty | Select PSChildName, ImagePath, ObjectName | FL | Out-String -Width 500 }
-    )
-
-    $successful_cmd = "All methods failed"
-    foreach ($cmd in $cmds) {
-        try { 
-            $services = & $cmd 2>$null 
-            if ($services -and $services.Trim()) { 
-                $successful_cmd = $cmd 
-                break 
-            } 
-        } catch { continue }
+    # Try 1: Get-CimInstance
+    $ScriptBlock = {
+        $ErrorActionPreference = 'SilentlyContinue'
+        Get-CimInstance Win32_Service | 
+        Where-Object {$_.StartName -notmatch "LocalService|NetworkService|LocalSystem"} | 
+        Select-Object Name, DisplayName, PathName, StartName | 
+        Format-List | 
+        Out-String -Width 500
     }
-
-    Write-CustomOutput "Services" $successful_cmd $services
+    $services = & $ScriptBlock 2>$null
+    
+    if ($services) {
+        $cmd = $ScriptBlock.ToString().Trim()
+        Write-CustomOutput "Services" $cmd $services
+        return
+    }
+    
+    # Try 2: Get-WmiObject
+    $ScriptBlock = {
+        $ErrorActionPreference = 'SilentlyContinue'
+        Get-WmiObject win32_service | 
+        Where-Object {$_.StartName -notmatch "LocalService|NetworkService"} | 
+        Select-Object Name, DisplayName, PathName, StartName | 
+        Format-List | 
+        Out-String -Width 500
+    }
+    $services = & $ScriptBlock 2>$null
+    
+    if ($services) {
+        $cmd = $ScriptBlock.ToString().Trim()
+        Write-CustomOutput "Services" $cmd $services
+        return
+    }
+    
+    # Try 3: sc.exe
+    $ScriptBlock = {
+        $ErrorActionPreference = 'SilentlyContinue'
+        sc.exe query type= service state= all
+    }
+    $services = & $ScriptBlock 2>$null | Out-String
+    
+    if ($LASTEXITCODE -eq 0 -and $services -notmatch "FAILED|Access is denied") {
+        Write-CustomOutput "Services" $ScriptBlock.ToString().Trim() $services
+        return
+    }
+    
+    # Try 4: Registry
+    $ScriptBlock = {
+        $ErrorActionPreference = 'SilentlyContinue'
+        Get-ChildItem HKLM:\SYSTEM\CurrentControlSet\Services | 
+        Get-ItemProperty | 
+        Select-Object PSChildName, ImagePath, ObjectName | 
+        Format-List | 
+        Out-String -Width 500
+    }
+    $services = & $ScriptBlock 2>$null
+    
+    if ($services) {
+        $cmd = $ScriptBlock.ToString().Trim()
+        Write-CustomOutput "Services" $cmd $services
+    } else {
+        Write-CustomOutput "Services" "All methods failed" "Unable to retrieve services"
+    }
 }
 
 function Get-IISDir {
