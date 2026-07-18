@@ -268,6 +268,10 @@ function Get-OneDrive {
 
 #TODO: Invoke-PSCommand is to be considered as deprecated and should be gradually replaced
 function Main {
+    param(
+        [switch]$Quick  # Skip more time-consuming steps
+    )
+
     $whoami = Invoke-PSCommand "whoami /all"
     Write-CustomOutput "User Information" "whoami /all" $whoami
 
@@ -286,9 +290,11 @@ function Main {
     $creds = Invoke-PSCommand "cmdkey /list"
     Write-CustomOutput "Credentials in Windows Credentials Manager" "cmdkey /list" $creds
 
-    $gitCmd = Build-GitSearchCommand
-    #$gitOutput = Invoke-PSCommand $gitCmd -Timeout 300
-    Write-CustomOutput "Git Repositories" $gitCmd $gitOutput
+    if(-not $Quick) {
+        $gitCmd = Build-GitSearchCommand
+        $gitOutput = Invoke-PSCommand $gitCmd -Timeout 300
+        Write-CustomOutput "Git Repositories" $gitCmd $gitOutput
+    }
 
     Get-OneDrive
 
