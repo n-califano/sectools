@@ -238,17 +238,15 @@ function Invoke-SystemCheck {
     try {
         $output = & $ScriptBlock 2>&1 | Out-String
         
-        if ($LASTEXITCODE -ne 0 -or $output -match "^ERROR:") {
-            Write-Host "-> $Label ($commandString):"
-            Write-Host "ERROR: $output"
+        if ($LASTEXITCODE -ne 0) {
+            Write-CustomOutput $Label $commandString $output
         }
         else {
             Write-CustomOutput $Label $commandString $output
         }
     }
     catch {
-        Write-Host "-> $Label ($commandString):"
-        Write-Host "EXCEPTION: $($_.Exception.Message)"
+        Write-CustomOutput $Label $commandString "EXCEPTION: $($_.Exception.Message)"
     }
 }
 
@@ -268,14 +266,14 @@ function Get-OneDrive {
     }
 }
 
+#TODO: Invoke-PSCommand is to be considered as deprecated and should be gradually replaced
 function Main {
     $whoami = Invoke-PSCommand "whoami /all"
     Write-CustomOutput "User Information" "whoami /all" $whoami
 
     Invoke-SystemCheck "System Information" { systeminfo }
 
-    $installed = Invoke-PSCommand 'dir -Path "C:\Program Files", "C:\Program Files (x86)"'
-    Write-CustomOutput "Installed Programs" 'dir -Path "C:\Program Files", "C:\Program Files (x86)"' $installed
+    Invoke-SystemCheck "Installed Programs" { Get-ChildItem "C:\", "C:\Program Files", "C:\Program Files (x86)" }
 
     Get-IISDir
 
