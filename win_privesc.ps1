@@ -298,8 +298,7 @@ function Main {
 
     Get-OneDrive
 
-    $netstat = Invoke-PSCommand 'netstat -ano'
-    Write-CustomOutput "Listening Ports" 'netstat -ano' $netstat
+    Invoke-SystemCheck "Listening Ports (TCP)" { netstat -an | Select-String "TCP|Proto|Active" }
 
     $ps = Invoke-PSCommand 'ps'
     Write-CustomOutput "Processes" 'ps' $ps
