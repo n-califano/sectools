@@ -320,7 +320,7 @@ def enum_ldap_users(target_ip, domain, username, password, port=389):
 
         # Save full output to file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S" )
-        filename = f"ldap_users_{target_ip}_{timestamp}.txt "
+        filename = f"ldap_users_{target_ip}_{timestamp}.txt"
         with open(filename, "w") as f:  
             f.write(result.stdout)  
             f.write(result.stderr)  
@@ -397,7 +397,8 @@ def run_adcs_check(target_ip, domain, username, password):
 
 ### Main
 def main():
-    all_services = ["smb", "mssql", "ldap", "usersenum", "as-rep", "reuse", "adcs"]
+    ad_services = ["ldap", "as-rep", "adcs"]
+    regular_services = ["smb", "mssql", "usersenum", "reuse"]
 
     parser = argparse.ArgumentParser(
         description="Enumeration Script",
@@ -417,12 +418,16 @@ def main():
     parser.add_argument("-d", dest="domain", required=False, help="Domain")
     parser.add_argument("-U", dest="userfile", required=False, help="Path to a users file, one username per line")
     parser.add_argument("-P", dest="password_file", required=False, help="Path to a passwords file, one password per line")
+    parser.add_argument("-ad", dest="ad", action="store_true", help="Shortcut to run all AD related checks")
     parser.add_argument("-s", dest="services", required=False,
                         type=lambda s: [x.strip().lower() for x in s.split(',')],
-                        default=all_services,
-                        help=f"Services to enumerate (comma-separated, e.g., smb,mssql,ldap). If not specified defaults to all. Possible values: {','.join(all_services)}")
+                        default=regular_services,
+                        help=f"Services to enumerate (comma-separated, e.g., smb,mssql,ldap). If not specified defaults to all. Possible values: {','.join(regular_services)}")
 
     args = parser.parse_args()
+
+    if args.ad:
+        args.services += ad_services
 
     print(f"Target: {args.target_ip}")
 
