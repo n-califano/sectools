@@ -303,6 +303,8 @@ function Main {
     $ps = Invoke-PSCommand 'ps'
     Write-CustomOutput "Processes" 'ps' $ps
 
+    Invoke-SystemCheck "AD Groups" { net group /domain }
+
     Write-Host "Manual Checks:"
     Write-Host '-> SMB (smbclient -L //<TARGET_IP> -U <USER>)'
     Write-Host "Run the smbclient command manually, if you have a valid password for the user"
