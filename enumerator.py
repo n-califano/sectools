@@ -342,15 +342,15 @@ def run_asrep_check(target_ip, domain, user=None, user_file=None):
 def run_password_reuse_check(target_ip, user_list, password_list):
     print_title("Password Reuse")
 
-    print("Password reuse check is broken since the command considers unexisting users as successful attempts. Fix the command or change tool. Skip for now")
-    return
-
-    cmd = ["hydra", "-L", user_list, "-P", password_list, "-f", "-V", f"smb2://{target_ip}"]
+    #cmd = ["hydra", "-L", user_list, "-P", password_list, "-f", "-V", f"smb2://{target_ip}"]
+    cmd = ["netexec", "winrm", target_ip, "-u", user_list, "-p", password_list, "--continue-on-success"]
     
     result = run_cmd(cmd)
     if result:
-        print("[+] Password Reuse:")
-        print(result.stdout + result.stderr + "\n")
+        for line in result.stdout.splitlines():
+            if "[+]" in line:
+                # Print only successful attempts
+                print(line.strip())
 
 
 ### Active Directory Certificate Services (ADCS)
@@ -388,8 +388,8 @@ def main():
     parser.add_argument("-P", dest="password_file", required=False, help="Path to a passwords file, one password per line")
     parser.add_argument("-s", dest="services", required=False,
                         type=lambda s: [x.strip().lower() for x in s.split(',')],
-                        default=all_services, choices=all_services,
-                        help="Services to enumerate (comma-separated, e.g., smb,mssql,ldap). If not specified defaults to all")
+                        default=all_services,
+                        help=f"Services to enumerate (comma-separated, e.g., smb,mssql,ldap). If not specified defaults to all. Possible values: {','.join(all_services)}")
 
     args = parser.parse_args()
 
