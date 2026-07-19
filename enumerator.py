@@ -304,24 +304,19 @@ def run_ldap_check(target_ip, domain, username, password, port=389):
 
 
 ### Users Enumeration
-def run_rpcclient_check(target_ip):
-    cmd = [
-        "rpcclient",
-        "-U", "", "-N",
-        target_ip, 
-        "-c", "enumdomusers"
-    ]
-    
-    return run_cmd(cmd)
-        
-
-def run_users_enum_check(target_ip):
+def run_users_enum_check(target_ip, username, password):
     print_title("Users Enumeration")
 
-    result = run_rpcclient_check(target_ip)
+    cmd = ["rpcclient", "-U", "", "-N", target_ip, "-c", "enumdomusers"]
+    result = run_cmd(cmd)
     if result:
-        print("[+] Users (rpcclient):")
         print(result.stdout + "\n")
+
+    if username and password:
+        cmd = ["impacket-lookupsid", f"{username}:{password}@{target_ip}"]
+        result = run_cmd(cmd)
+        if result:  
+            print(result.stdout + "\n") 
 
 
 ### AS-REP
@@ -411,7 +406,7 @@ def main():
             print("[!] Error: need to provide domain to run ldap check")
 
     if "usersenum" in args.services:
-        run_users_enum_check(args.target_ip)
+        run_users_enum_check(args.target_ip, args.username, args.password)
 
     if "as-rep" in args.services:
         if args.userfile:
