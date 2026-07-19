@@ -1,3 +1,7 @@
+param(
+        [switch]$Quick
+    )
+
 function Write-CustomOutput {
     param([string]$Label, [string]$Command, [string]$Output)
     
@@ -113,39 +117,41 @@ function Invoke-PSCommand {
     return $output.Trim()
 }
 
-function Build-GitSearchCommand {
-    param([string]$Drive = "C:\")
-    $blacklist = @(
-        "$Drive\Windows",
-        "$Drive\Program Files",
-        "$Drive\Program Files (x86)",
-        "$Drive\ProgramData",
-        "$Drive\$Recycle.Bin",
-        "$Drive\System Volume Information",
-        "$Drive\Recovery",
-        "$Drive\Windows.old",
-        "$Drive\PerfLogs"
-    )
+function Get-GitFolders {
+    $gitOutput = & {
+        $ErrorActionPreference = 'SilentlyContinue'
+        
+        $Drive = "C:\"
+        $blacklist = @(
+            "$Drive\Windows",
+            "$Drive\Program Files",
+            "$Drive\Program Files (x86)",
+            "$Drive\ProgramData",
+            "$Drive\$Recycle.Bin",
+            "$Drive\System Volume Information",
+            "$Drive\Recovery",
+            "$Drive\Windows.old",
+            "$Drive\PerfLogs"
+        )
 
-    $usersDir = "$Drive\Users"
-    if (Test-Path $usersDir) {
-        Get-ChildItem -Path $usersDir -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            $blacklist += Join-Path $_.FullName "AppData"
+        $usersDir = "$Drive\Users"
+        if (Test-Path $usersDir) {
+            Get-ChildItem -Path $usersDir -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+                $blacklist += Join-Path $_.FullName "AppData"
+            }
         }
-    }
 
-    # Build PowerShell array literal
-    $quotedItems = $blacklist | ForEach-Object { "'$_'" }
-    $psArray = $quotedItems -join ","
-
-    $cmd = @"
-`$blacklist = @($psArray);
-`$roots = Get-ChildItem -Path '$Drive' -Directory -Force -ErrorAction SilentlyContinue | Where-Object { `$blacklist -notcontains `$_.FullName };
-foreach (`$root in `$roots) {
-    Get-ChildItem -Path `$root.FullName -Directory -Filter '.git' -Recurse -Force -ErrorAction SilentlyContinue
-}
-"@
-    return $cmd
+        $roots = Get-ChildItem -Path $Drive -Directory -Force -ErrorAction SilentlyContinue | 
+                 Where-Object { $blacklist -notcontains $_.FullName }
+        
+        foreach ($root in $roots) {
+            Get-ChildItem -Path $root.FullName -Directory -Filter '.git' -Recurse -Force -ErrorAction SilentlyContinue | 
+            Select-Object -ExpandProperty FullName
+        }
+    } 2>$null | Out-String
+    
+    $cmdString = "Get-ChildItem -Path C:\ -Filter '.git' -Recurse (with blacklist)"
+    Write-CustomOutput "Git Repositories" $cmdString $gitOutput
 }
 
 function Get-Services {
@@ -268,10 +274,6 @@ function Get-OneDrive {
 
 #TODO: Invoke-PSCommand is to be considered as deprecated and should be gradually replaced
 function Main {
-    param(
-        [switch]$Quick  # Skip more time-consuming steps
-    )
-
     $whoami = Invoke-PSCommand "whoami /all"
     Write-CustomOutput "User Information" "whoami /all" $whoami
 
@@ -291,9 +293,7 @@ function Main {
     Write-CustomOutput "Credentials in Windows Credentials Manager" "cmdkey /list" $creds
 
     if(-not $Quick) {
-        $gitCmd = Build-GitSearchCommand
-        $gitOutput = Invoke-PSCommand $gitCmd -Timeout 300
-        Write-CustomOutput "Git Repositories" $gitCmd $gitOutput
+        Get-GitFolders
     }
 
     Get-OneDrive
