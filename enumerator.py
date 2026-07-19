@@ -2,6 +2,7 @@ import sys
 import argparse
 import subprocess
 import re
+from datetime import datetime
 
 ### Helpers
 def info(msg):    print(f"[*] {msg}")
@@ -278,7 +279,29 @@ def run_ldap_command(target_ip, domain, filter_query, username, password, port=3
         
 
 def enum_ldap_users(target_ip, domain, username, password, port=389):
-    """Enumerate LDAP users."""
+    interesting = (
+        "dn",                    # Distinguished name
+        "cn",                    # Common name
+        "sAMAccountName",        # Login username
+        "userPrincipalName",     # UPN (user@domain.com)
+        "memberOf",              # Group memberships
+        "servicePrincipalName",  # Kerberoasting targets
+        "userAccountControl",    # Account status (disabled, no expire, etc.)
+        "adminCount",            # Ever been admin?
+        "description",           # May contain passwords
+        "info",                  # Additional info (non-standard)
+        "pwdLastSet",            # Password age
+        "lastLogon",             # Active vs stale account
+        "accountExpires",        # Account expiration
+        "msDS-AllowedToDelegateTo",  # Constrained delegation
+        "msDS-AllowedToActOnBehalfOfOtherIdentity",  # RBCD
+        "primaryGroupID",        # Domain users (513), admins (512), etc.
+        "objectSid",             # SID
+        "mail"                   # Email
+    )
+    skip_comments = ("# extended", "# LDAP", "# base", "# filter", "# requesting", 
+                 "# search result", "# numResponses", "# numEntries", "# numReferences", "# search reference")
+
     result = run_ldap_command(target_ip, domain, "(objectClass=user)", username, password, port)
 
     if result.returncode == 8: 
@@ -287,8 +310,21 @@ def enum_ldap_users(target_ip, domain, username, password, port=389):
 
     if result:
         print("[+] LDAP Users:")
-        print(result.stdout)
-        print(result.stderr)
+        for line in result.stdout.splitlines():
+            if line.startswith(skip_comments) or line.strip() == "#":
+                continue
+            if line.startswith("#"):
+                print(f"\n{line}")
+            if line.startswith(interesting):
+                print(line)
+
+        # Save full output to file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S" )
+        filename = f"ldap_users_{target_ip}_{timestamp}.txt "
+        with open(filename, "w") as f:  
+            f.write(result.stdout)  
+            f.write(result.stderr)  
+        print(f"\n[+] Full LDAP output saved to: {filename}") 
 
 
 def run_ldap_check(target_ip, domain, username, password, port=389):
