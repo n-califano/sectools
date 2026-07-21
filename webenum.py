@@ -88,6 +88,12 @@ def success(msg): print(f"[+] {msg}")
 def warn(msg):    print(f"[!] {msg}")
 def error(msg):   print(f"[ERROR] {msg}", file=sys.stderr)
 
+def print_title(title):
+    line = "#" * 60
+    print(f"\n{line}")
+    print(f"# {title.upper().center(56)} #")
+    print(f"{line}\n")
+
 
 def check_tool(name):
     if subprocess.run(["which", name], capture_output=True).returncode != 0:
@@ -117,7 +123,7 @@ def run_ffuf(target, wordlist_path, outfile, recursive, extensions=None):
         cmd += ["-recursion", "-recursion-depth", "2"]
     if extensions:
         cmd += ["-e", ",".join(extensions)]
-    info(f"ffuf cmd  →  {cmd}")
+    info(f"Running ffuf cmd  →  {" ".join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         warn(f"ffuf exited with code {result.returncode}")
@@ -131,7 +137,7 @@ def run_arjun(target, wordlist_path, outfile):
         "-oT", outfile,
         "-c", "5",
     ]
-    info(f"arjun cmd  →  {cmd}")
+    info(f"Running arjun cmd  →  {" ".join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         warn(f"arjun exited with code {result.returncode}")
@@ -209,7 +215,10 @@ def parse_vhost_csv(filepath, domain):
     return results
 
 def write_summary(all_paths, outfile):
+    all_paths = {k.lower(): all_paths[k] for k in all_paths}    # deduplicate and normalize to lowercase
     sorted_paths = sorted(all_paths.items(), key=lambda x: (min(x[1]), x[0]))
+
+    print_title("Summary")
 
     with open(outfile, "w") as f:
         f.write(f"# subdirectory enumeration summary - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -217,9 +226,12 @@ def write_summary(all_paths, outfile):
         for path, statuses in sorted_paths:
             status_str = "/".join(sorted(statuses))
             flag = "  multiple codes" if len(statuses) > 1 else ""
-            f.write(f"{status_str}  {path}{flag}\n")
+            line_to_print = f"{status_str}  {path}{flag}"
+            f.write(f"{line_to_print}\n")  #write to file
+            success(line_to_print)  #write to stdout
 
-    success(f"Summary → {outfile}  ({len(sorted_paths)} unique paths)")
+    print("")
+    success(f"Summary saved to {outfile}  ({len(sorted_paths)} unique paths)")
 
 def merge_paths(all_paths, new_paths):
     """Merge new_paths dict into all_paths, collecting all status codes per path."""
@@ -310,7 +322,7 @@ def detect_extensions_from_url(target):
     
 def enumerate_host(target, label, outdir, args, web_size, api_size):
     """Run requested modes on a single host, writing output to outdir/label/."""
-    info(f"\n--- Enumerating: {label} ---")
+    print_title(f"Enumerating: {label}")
     host_outdir = os.path.join(outdir, label)
     os.makedirs(host_outdir, exist_ok=True)
     all_paths = {}
@@ -362,7 +374,7 @@ def enumerate_host(target, label, outdir, args, web_size, api_size):
                             found_params = True
                             success(f"Arjun found params on {path} → {page_outfile}")
 
-                        processed.add(path)
+                        processed.add(path_lower)
 
     if all_paths:
         summary_file = os.path.join(host_outdir, "summary.txt")
