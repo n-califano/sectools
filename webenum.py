@@ -6,7 +6,8 @@ import os
 import sys
 from datetime import datetime
 import urllib.request
-import json
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
 
 ### Wordlists
 SECLISTS = "/usr/share/seclists"
@@ -127,7 +128,7 @@ def run_arjun(target, wordlist_path, outfile):
         "arjun",
         "-u", target,
         "-w", wordlist_path,
-        "--output-file", outfile,
+        "-oT", outfile,
         "-c", "5",
     ]
     info(f"arjun cmd  →  {cmd}")
@@ -286,6 +287,7 @@ def detect_extensions_from_header(target):
         return detected
     except Exception as e:
         warn(f"Could not detect extensions: {e}")
+        return detected
 
 def detect_extensions_from_url(target):
     """Infer extensions by scraping index page links."""
@@ -314,10 +316,10 @@ def enumerate_host(target, label, outdir, args, web_size, api_size):
     all_paths = {}
 
     merge_paths(all_paths, check_common_files(target)) 
+    extensions = detect_extensions(target, extra=args.extensions)
 
     if args.web or args.api:
         check_tool("ffuf")
-        extensions = detect_extensions(target, extra=args.extensions)
         modes = []
         if args.web: modes.append("web")
         if args.api: modes.append("api")
@@ -340,8 +342,27 @@ def enumerate_host(target, label, outdir, args, web_size, api_size):
         wl_path = check_wordlist("params")
         if wl_path:
             outfile = os.path.join(host_outdir, "params.txt")
-            run_arjun(target, wl_path, outfile)
-            success(f"Arjun results → {outfile}")
+            
+            processed = set()
+            for path in all_paths:
+                if path.endswith('/'):  # Skip directories
+                    continue
+                    
+                _, ext = os.path.splitext(path)
+                if ext and ext.lower() in {e.lower() for e in extensions}:
+                    path_lower = path.lower()
+                    if path_lower not in processed:
+                        page_url = f"{target}/{path}"
+                        safe_name = path.replace('/', '_').replace('\\', '_')
+                        page_outfile = os.path.join(host_outdir, f"params_{safe_name}.txt")
+                        run_arjun(page_url, wl_path, page_outfile)
+
+                        # Check if arjun found params (file exists and has content)
+                        if os.path.exists(page_outfile) and os.path.getsize(page_outfile) > 0:
+                            found_params = True
+                            success(f"Arjun found params on {path} → {page_outfile}")
+
+                        processed.add(path)
 
     if all_paths:
         summary_file = os.path.join(host_outdir, "summary.txt")
