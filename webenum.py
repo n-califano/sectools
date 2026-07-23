@@ -129,7 +129,7 @@ def run_ffuf(target, wordlist_path, outfile, recursive, extensions=None):
         warn(f"ffuf exited with code {result.returncode}")
 
 
-def run_arjun(target, wordlist_path, outfile):
+def run_arjun(target, wordlist_path, outfile, headers=None):
     cmd = [
         "arjun",
         "-u", target,
@@ -137,6 +137,11 @@ def run_arjun(target, wordlist_path, outfile):
         "-oT", outfile,
         "-c", "5",
     ]
+    if headers:
+        # Arjun expects headers as a single string with \n separators
+        header_str = "\n".join(headers)
+        cmd.extend(["--headers", header_str])
+
     info(f"Running arjun cmd  →  {" ".join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -215,7 +220,6 @@ def parse_vhost_csv(filepath, domain):
     return results
 
 def write_summary(all_paths, outfile):
-    all_paths = {k.lower(): all_paths[k] for k in all_paths}    # deduplicate and normalize to lowercase
     sorted_paths = sorted(all_paths.items(), key=lambda x: (min(x[1]), x[0]))
 
     print_title("Summary")
@@ -349,32 +353,28 @@ def enumerate_host(target, label, outdir, args, web_size, api_size):
                 run_ffuf(target, wl_path, outfile, args.recursive, extensions)
                 merge_paths(all_paths, parse_ffuf_csv(outfile))
 
+    all_paths = {k.lower(): all_paths[k] for k in all_paths}    # deduplicate and normalize to lowercase
+
     if args.param_discovery:
         check_tool("arjun")
         wl_path = check_wordlist("params")
         if wl_path:
             outfile = os.path.join(host_outdir, "params.txt")
             
-            processed = set()
             for path in all_paths:
                 if path.endswith('/'):  # Skip directories
                     continue
                     
                 _, ext = os.path.splitext(path)
                 if ext and ext.lower() in {e.lower() for e in extensions}:
-                    path_lower = path.lower()
-                    if path_lower not in processed:
-                        page_url = f"{target}/{path}"
-                        safe_name = path.replace('/', '_').replace('\\', '_')
-                        page_outfile = os.path.join(host_outdir, f"params_{safe_name}.txt")
-                        run_arjun(page_url, wl_path, page_outfile)
+                    safe_name = path.replace('/', '_').replace('\\', '_')
+                    page_outfile = os.path.join(host_outdir, f"params_{safe_name}.txt")
+                    run_arjun(path, wl_path, page_outfile, args.headers)
 
-                        # Check if arjun found params (file exists and has content)
-                        if os.path.exists(page_outfile) and os.path.getsize(page_outfile) > 0:
-                            found_params = True
-                            success(f"Arjun found params on {path} → {page_outfile}")
-
-                        processed.add(path_lower)
+                    # Check if arjun found params (file exists and has content)
+                    if os.path.exists(page_outfile) and os.path.getsize(page_outfile) > 0:
+                        found_params = True
+                        success(f"Arjun found params on {path} → {page_outfile}")
 
     if all_paths:
         summary_file = os.path.join(host_outdir, "summary.txt")
@@ -404,6 +404,10 @@ def main():
     parser.add_argument("--vhost-size", choices=["small", "medium", "large"], default=None)
     parser.add_argument("--extensions", metavar="EXT", help="Comma-separated extensions to fuzz (e.g. php,html). Combined with autodetect.", default=None,)
     parser.add_argument("--recursive", action="store_true", help="Recurse into discovered directories")
+    parser.add_argument("--headers", dest="headers", required=False,
+                        type=lambda s: [x.strip() for x in s.split(',')],
+                        help="Specify headers")
+
     args = parser.parse_args()
 
     if not any([args.web, args.api, args.param_discovery, args.vhost]):
