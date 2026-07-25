@@ -147,6 +147,8 @@ def run_arjun(target, wordlist_path, outfile, headers=None):
     if result.returncode != 0:
         warn(f"arjun exited with code {result.returncode}")
 
+    return result
+
 def run_ffuf_vhost(target, domain, wordlist_path, outfile, filter_size=None):
     cmd = [
         "ffuf",
@@ -219,7 +221,7 @@ def parse_vhost_csv(filepath, domain):
                     results.append(f"{subdomain}.{domain}")
     return results
 
-def write_summary(all_paths, outfile):
+def write_summary(all_paths, params_found, outfile):
     sorted_paths = sorted(all_paths.items(), key=lambda x: (min(x[1]), x[0]))
 
     print_title("Summary")
@@ -233,6 +235,15 @@ def write_summary(all_paths, outfile):
             line_to_print = f"{status_str}  {path}{flag}"
             f.write(f"{line_to_print}\n")  #write to file
             success(line_to_print)  #write to stdout
+
+        print("")
+        f.write(f"\n")
+        for path, success_lines in params_found.items():
+            for line in success_lines:
+                line = line.replace("[+]", "")
+                f.write(f"{line} in {path}\n")  #write to file
+                success(f"{line} in {path}")  #write to stdout
+
 
     print("")
     success(f"Summary saved to {outfile}  ({len(sorted_paths)} unique paths)")
@@ -355,11 +366,12 @@ def enumerate_host(target, label, outdir, args, web_size, api_size):
 
     all_paths = {k.lower(): all_paths[k] for k in all_paths}    # deduplicate and normalize to lowercase
 
+    params_found = {}
     if args.param_discovery:
         check_tool("arjun")
         wl_path = check_wordlist("params")
         if wl_path:
-            outfile = os.path.join(host_outdir, "params.txt")
+            #outfile = os.path.join(host_outdir, "params.txt")
             
             for path in all_paths:
                 if path.endswith('/'):  # Skip directories
@@ -367,18 +379,21 @@ def enumerate_host(target, label, outdir, args, web_size, api_size):
                     
                 _, ext = os.path.splitext(path)
                 if ext and ext.lower() in {e.lower() for e in extensions}:
-                    safe_name = path.replace('/', '_').replace('\\', '_')
-                    page_outfile = os.path.join(host_outdir, f"params_{safe_name}.txt")
-                    run_arjun(path, wl_path, page_outfile, args.headers)
-
-                    # Check if arjun found params (file exists and has content)
-                    if os.path.exists(page_outfile) and os.path.getsize(page_outfile) > 0:
-                        found_params = True
-                        success(f"Arjun found params on {path} → {page_outfile}")
-
+                    page_outfile = create_arjun_outfile_path(path, target, host_outdir)
+                    result = run_arjun(path, wl_path, page_outfile, args.headers)
+                    param_success_lines = [line for line in result.stdout.splitlines() if "[+]" in line]
+                    params_found[path] = param_success_lines
+                    
     if all_paths:
         summary_file = os.path.join(host_outdir, "summary.txt")
-        write_summary(all_paths, summary_file)
+        write_summary(all_paths, params_found, summary_file)
+
+
+def create_arjun_outfile_path(path, target, host_outdir):
+    safe_name = path.replace(target, "").replace('/', '_').replace('\\', '_')
+    safe_name = f"params{safe_name}.txt" if safe_name.startswith("_") else f"params_{safe_name}.txt"
+
+    return os.path.join(host_outdir, safe_name)
 
 ### Main
 def main():
