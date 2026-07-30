@@ -25,7 +25,7 @@ def run_cmd(cmd):
     info(f'Running: {" ".join(cmd)}')
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         
         # Check for common failure indicators
         if result.returncode != 0:
@@ -160,8 +160,8 @@ def run_mssql_check(target_ip, username, password, port=1433):
     # Test connection first
     info(f"Connecting to {target_ip}:{port} as {username}")
     test = run_mssql_command(target_ip, username, password, "SELECT @@version", port)
-    if not test:
-        warn("Failed to connect to MSSQL")
+    if test.returncode == 1:
+        warn("mssql command returned 1, failed to connect to MSSQL")
         return
     
     # Extract version info from connection output
@@ -404,15 +404,15 @@ def main():
         description="Enumeration Script",
         formatter_class=argparse.RawTextHelpFormatter,
         #TODO: fix examples
-        epilog=(
-            "Examples:\n"
-            "  python3 subdir_enum.py -t http://10.10.10.10 --web\n"
-            "  python3 subdir_enum.py -t http://10.10.10.10 --api --medium\n"
-            "  python3 subdir_enum.py -t http://10.10.10.10 --web --api\n"
-            "  python3 subdir_enum.py -t http://10.10.10.10/api/v1/users --param-discovery\n"
-        ),
+        #epilog=(
+        #    "Examples:\n"
+        #    "  python3 subdir_enum.py -t http://10.10.10.10 --web\n"
+        #    "  python3 subdir_enum.py -t http://10.10.10.10 --api --medium\n"
+        #    "  python3 subdir_enum.py -t http://10.10.10.10 --web --api\n"
+        #    "  python3 subdir_enum.py -t http://10.10.10.10/api/v1/users --param-discovery\n"
+        #),
     )
-    parser.add_argument("-t", dest="target_ip", required=True, help="Target IP (e.g. 10.10.10.10")
+    parser.add_argument("-t", dest="target_ip", required=True, help="Target IP (e.g. 10.10.10.10)")
     parser.add_argument("-u", dest="username", required=False, help="Username")
     parser.add_argument("-p", dest="password", required=False, help="Password")
     parser.add_argument("-d", dest="domain", required=False, help="Domain")
@@ -464,8 +464,6 @@ def main():
     if "adcs" in args.services:
         if args.domain and args.username and args.password:
             run_adcs_check(args.target_ip, args.domain, args.username, args.password)
-        else:
-            print("[!] Error: need to provide domain, username and password to run the adcs check")
 
 if __name__ == "__main__":
     main()
