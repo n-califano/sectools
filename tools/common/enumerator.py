@@ -466,6 +466,8 @@ def main():
     if "adcs" in args.services:
         if args.domain and args.username and args.password:
             run_adcs_check(args.target_ip, args.domain, args.username, args.password)
+        else:
+            print("[!] Error: need to provide domain, username and password to run the adcs check")
 
 if __name__ == "__main__":
     main()
