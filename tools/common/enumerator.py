@@ -450,7 +450,9 @@ def main():
         run_users_enum_check(args.target_ip, args.username, args.password)
 
     if "as-rep" in args.services:
-        if args.userfile:
+        if not args.domain:
+            print("[!] Error: need to provide domain to run as-rep check")
+        elif args.userfile:
             run_asrep_check(args.target_ip, args.domain, user_file=args.userfile)
         elif args.username:
             run_asrep_check(args.target_ip, args.domain, user=args.username)
