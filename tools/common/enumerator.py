@@ -369,9 +369,9 @@ def run_asrep_check(target_ip, domain, user=None, user_file=None):
         print(result.stdout + "\n")
 
 
-### Password Reuse
-def run_password_reuse_check(target_ip, user_list, password_list):
-    print_title("Password Reuse")
+### Password Spraying
+def run_password_spray_check(target_ip, user_list, password_list):
+    print_title("Password Spraying")
 
     #cmd = ["hydra", "-L", user_list, "-P", password_list, "-f", "-V", f"smb2://{target_ip}"]
     cmd = ["netexec", "winrm", target_ip, "-u", user_list, "-p", password_list, "--continue-on-success"]
@@ -398,7 +398,7 @@ def run_adcs_check(target_ip, domain, username, password):
 ### Main
 def main():
     ad_services = ["ldap", "as-rep", "adcs"]
-    regular_services = ["smb", "mssql", "usersenum", "reuse"]
+    regular_services = ["smb", "mssql", "usersenum", "pwd-spray"]
 
     parser = argparse.ArgumentParser(
         description="Enumeration Script",
@@ -455,11 +455,11 @@ def main():
         elif args.username:
             run_asrep_check(args.target_ip, args.domain, user=args.username)
 
-    if "reuse" in args.services:
+    if "pwd-spray" in args.services:
         if args.userfile and args.password_file:
-            run_password_reuse_check(args.target_ip, args.userfile, args.password_file)
+            run_password_spray_check(args.target_ip, args.userfile, args.password_file)
         else:
-            print("[!] Error: need to provide a user file and a passwords file to run the password reuse check")
+            print("[!] Error: need to provide a user file and a passwords file to run the password spraying check")
 
     if "adcs" in args.services:
         if args.domain and args.username and args.password:
