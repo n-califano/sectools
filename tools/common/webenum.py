@@ -405,7 +405,6 @@ def main():
             "  python3 webenum.py -t http://10.10.10.10 --web\n"
             "  python3 webenum.py -t http://10.10.10.10 --api --medium\n"
             "  python3 webenum.py -t http://10.10.10.10 --web --api\n"
-            "  python3 webenum.py -t http://10.10.10.10/api/v1/users --param-discovery\n"
         ),
     )
     parser.add_argument("-t", dest="target", required=True, help="Target URL (e.g. http://10.10.10.10)")
