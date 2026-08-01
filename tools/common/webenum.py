@@ -413,9 +413,9 @@ def main():
     parser.add_argument("--param-discovery", action="store_true", help="HTTP parameter discovery (use full endpoint as -t)")
     parser.add_argument("--vhost", metavar="DOMAIN", help="Vhost enumeration against base domain (e.g. example.htb)")
     parser.add_argument("--medium", action="store_true", help="Use medium wordlists globally (default: small)")
-    parser.add_argument("--web-size", choices=["small", "medium"], default=None)
-    parser.add_argument("--api-size", choices=["small", "medium"], default=None)
-    parser.add_argument("--vhost-size", choices=["small", "medium", "large"], default=None)
+    parser.add_argument("--web-size", choices=["small", "medium"], help="Choose wordlists size", default=None)
+    parser.add_argument("--api-size", choices=["small", "medium"], help="Choose wordlists size", default=None)
+    parser.add_argument("--vhost-size", choices=["small", "medium", "large"], help="Choose wordlists size", default=None)
     parser.add_argument("--extensions", metavar="EXT", help="Comma-separated extensions to fuzz (e.g. php,html). Combined with autodetect.", default=None,)
     parser.add_argument("--recursive", action="store_true", help="Recurse into discovered directories")
     parser.add_argument("--headers", dest="headers", required=False,
