@@ -1,4 +1,4 @@
-function Get-ADObjectAcl
+function Get-ADComputerAcl
 {
     param(
         [Parameter( Mandatory = $true )]
@@ -159,7 +159,7 @@ function Send-FileTcp {
     $client.Close()
 }
 
-Export-ModuleMember -Function Get-ADObjectAcl
+Export-ModuleMember -Function Get-ADComputerAcl
 Export-ModuleMember -Function Get-ADGroupAcl
 Export-ModuleMember -Function Resolve-AceObjectGuid
 Export-ModuleMember -Function Grant-ADGroupAttributeWritePermission
