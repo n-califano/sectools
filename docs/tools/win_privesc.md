@@ -8,7 +8,7 @@
 | **System Information** | OS version, architecture, and installed hotfixes |
 | **Installed Programs** | Program directories for vulnerable software enumeration |
 | **IIS** | Web server document roots and virtual directories |
-| **Services** | Non-standard service accounts and binary paths | 
+| **Services** | Non-standard services and binary paths | 
 | **Environment Variables** | Hardcoded credentials, API keys, and sensitive configuration leaks |
 | **Cached Credentials** | Stored credentials in Windows Credential Manager for lateral movement |
 | **Git Repositories** | Source code repositories potentially containing secrets and config files |
